@@ -3,23 +3,108 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from scipy.stats import chi2
+from scipy.stats import chi2, norm
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, 
-                             QComboBox, QLabel, QHeaderView, QSpinBox, QTextEdit)
+                             QComboBox, QLabel, QHeaderView, QSpinBox, QFrame)
 from abc import ABC, abstractmethod
 
 DARK_STYLE = """
-    QMainWindow { background-color: #000000; }
-    QWidget { background-color: #000000; color: #FFFFFF; font-family: 'Consolas', monospace; }
-    QTableWidget { background-color: #121212; border: 1px solid #FF8C00; color: white; gridline-color: #333; }
-    QHeaderView::section { background-color: #1e1e1e; color: #FF8C00; border: 1px solid #333; }
-    QPushButton { background-color: #1e1e1e; color: #FF8C00; border: 1px solid #FF8C00; border-radius: 4px; padding: 10px; font-weight: bold; }
-    QPushButton:hover { background-color: #FF8C00; color: #000000; }
-    QSpinBox { background-color: #1e1e1e; border: 1px solid #FF8C00; color: white; padding: 5px; }
-    QTextEdit { background-color: #0a0a0a; border: 1px solid #444; color: #00FF00; font-size: 12px; }
-    QComboBox { background-color: #1e1e1e; border: 1px solid #FF8C00; color: white; padding: 5px; }
+    QMainWindow { background-color: #0b0e14; }
+    QWidget { background-color: #0b0e14; color: #ecf0f1; font-family: 'Segoe UI', sans-serif; }
+    
+    QTableWidget { 
+        background-color: #151921; 
+        border: 1px solid #34495e; 
+        gridline-color: #2c3e50; 
+        border-radius: 5px;
+    }
+    QHeaderView::section { 
+        background-color: #1c222d; 
+        color: #3498db; 
+        padding: 5px; 
+        border: 1px solid #2c3e50;
+    }
+
+    QPushButton { 
+        background-color: #1c222d; 
+        color: #3498db; 
+        border: 2px solid #3498db; 
+        border-radius: 5px; 
+        padding: 12px; 
+        font-weight: bold; 
+        font-size: 12px;
+    }
+    QPushButton:hover { background-color: #3498db; color: #ffffff; }
+    QPushButton#btn_normal { border-color: #e74c3c; color: #e74c3c; }
+    QPushButton#btn_normal:hover { background-color: #e74c3c; color: #ffffff; }
+
+    QSpinBox, QComboBox { 
+        background-color: #151921; 
+        border: 1px solid #34495e; 
+        border-radius: 3px; 
+        padding: 5px; 
+        color: white; 
+    }
+
+    QLabel#Header { color: #3498db; font-weight: bold; font-size: 14px; margin-top: 10px; margin-bottom: 5px; }
 """
+
+class StatCard(QFrame):
+    def __init__(self, title, unit="%"):
+        super().__init__()
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setStyleSheet("""
+            StatCard {
+                background-color: #1c222d;
+                border: 1px solid #2c3e50;
+                border-left: 5px solid #3498db;
+                border-radius: 8px;
+            }
+            QLabel#Title { color: #bdc3c7; font-size: 11px; text-transform: uppercase; }
+            QLabel#Value { color: #ffffff; font-size: 20px; font-weight: bold; }
+            QLabel#Status { font-size: 10px; font-weight: bold; }
+        """)
+        layout = QVBoxLayout(self)
+        
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("Title")
+        
+        self.value_label = QLabel("0.00")
+        self.value_label.setObjectName("Value")
+        
+        self.status_label = QLabel("ОЖИДАНИЕ")
+        self.status_label.setObjectName("Status")
+        self.status_label.setStyleSheet("color: #7f8c8d;")
+        
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.value_label)
+        layout.addWidget(self.status_label)
+
+    def update_val(self, value, is_error=True, threshold=0.05, custom_status=None):
+        if isinstance(value, float):
+            self.value_label.setText(f"{value:.4f}")
+        else:
+            self.value_label.setText(str(value))
+            
+        if custom_status:
+            self.status_label.setText(custom_status.upper())
+            color = "#2ecc71" if "ПРОЙДЕН" in custom_status or "OK" in custom_status else "#e74c3c"
+        
+        elif is_error:
+            err_percent = value * 100
+            self.value_label.setText(f"{err_percent:.2f}%")
+            if err_percent < threshold * 100:
+                self.status_label.setText("В ПРЕДЕЛАХ НОРМЫ")
+                color = "#2ecc71"
+            else:
+                self.status_label.setText("ВЫСОКАЯ ПОГРЕШНОСТЬ")
+                color = "#f1c40f"
+        
+        else:
+            color = "#3498db"
+            
+        self.status_label.setStyleSheet(f"color: {color};")
 
 class DistributionStrategy(ABC):
     @abstractmethod
@@ -34,8 +119,8 @@ class BernoulliStrategy(DistributionStrategy):
 class LabWorkApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Имитационное моделирование СВ - Лабораторная работа")
-        self.resize(1300, 800)
+        self.setWindowTitle("Simulation Lab: Discrete & Normal Distributions")
+        self.resize(1400, 850)
         self.setStyleSheet(DARK_STYLE)
         self.init_ui()
 
@@ -46,51 +131,82 @@ class LabWorkApp(QMainWindow):
 
         left_panel = QVBoxLayout()
         
-        left_panel.addWidget(QLabel("1. ПАРАМЕТРЫ ВЫБОРКИ"))
+        lbl1 = QLabel("ПАРАМЕТРЫ ВЫБОРКИ")
+        lbl1.setObjectName("Header")
+        left_panel.addWidget(lbl1)
+        
         self.sample_count = QSpinBox()
-        self.sample_count.setRange(10, 100000)
-        self.sample_count.setValue(1000)
-        self.sample_count.setSingleStep(100)
+        self.sample_count.setRange(100, 1000000)
+        self.sample_count.setValue(5000)
+        self.sample_count.setSingleStep(1000)
         left_panel.addWidget(self.sample_count)
 
-        left_panel.addSpacing(20)
-        left_panel.addWidget(QLabel("2. РЯД РАСПРЕДЕЛЕНИЯ"))
+        lbl_bins = QLabel("ИНТЕРВАЛОВ (для Нормального)")
+        lbl_bins.setObjectName("Header")
+        left_panel.addWidget(lbl_bins)
+        
+        self.bins_count_spin = QSpinBox()
+        self.bins_count_spin.setRange(5, 100)
+        self.bins_count_spin.setValue(15)
+        left_panel.addWidget(self.bins_count_spin)
+
+        left_panel.addSpacing(10)
+        
+        lbl2 = QLabel("ДИСКРЕТНАЯ СВ")
+        lbl2.setObjectName("Header")
+        left_panel.addWidget(lbl2)
+        
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["X", "P"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         left_panel.addWidget(self.table)
 
         self.strat_combo = QComboBox()
-        self.strategies = {"Пресеты...": None, "Равномерное": UniformStrategy(), "Бернулли": BernoulliStrategy()}
+        self.strategies = {"Пресеты...": None, "Равномерное [1..5]": UniformStrategy(), "Бернулли": BernoulliStrategy()}
         self.strat_combo.addItems(self.strategies.keys())
         self.strat_combo.currentIndexChanged.connect(self.apply_preset)
         left_panel.addWidget(self.strat_combo)
 
-        self.btn_discrete = QPushButton("СЭМПЛИТЬ ДИСКРЕТНУЮ СВ")
+        self.btn_discrete = QPushButton("СЭМПЛИТЬ ДИСКРЕТНУЮ")
         self.btn_discrete.clicked.connect(self.run_discrete)
         left_panel.addWidget(self.btn_discrete)
 
-        left_panel.addSpacing(20)
-        left_panel.addWidget(QLabel("3. НОРМАЛЬНАЯ СВ"))
-        self.btn_normal = QPushButton("ГЕНЕРИРОВАТЬ НОРМАЛЬНУЮ СВ")
-        self.btn_normal.setStyleSheet("border-color: #00BFFF; color: #00BFFF;")
+        left_panel.addSpacing(15)
+        lbl3 = QLabel("НОРМАЛЬНАЯ СВ (Box-Muller)")
+        lbl3.setObjectName("Header")
+        left_panel.addWidget(lbl3)
+
+        self.btn_normal = QPushButton("СГЕНЕРИРОВАТЬ НОРМАЛЬНУЮ")
+        self.btn_normal.setObjectName("btn_normal")
         self.btn_normal.clicked.connect(self.run_normal)
         left_panel.addWidget(self.btn_normal)
 
         main_layout.addLayout(left_panel, 1)
 
         mid_panel = QVBoxLayout()
-        mid_panel.addWidget(QLabel("СТАТИСТИЧЕСКИЙ ОТЧЕТ"))
-        self.stats_output = QTextEdit()
-        self.stats_output.setReadOnly(True)
-        mid_panel.addWidget(self.stats_output)
+        lbl4 = QLabel("АНАЛИТИЧЕСКИЕ ПОКАЗАТЕЛИ")
+        lbl4.setObjectName("Header")
+        mid_panel.addWidget(lbl4)
+
+        self.card_chi = StatCard("Критерий Пирсона χ²")
+        self.card_mean_err = StatCard("Отклонение среднего (M)")
+        self.card_std_err = StatCard("Отклонение СКО (σ)")
+        
+        mid_panel.addWidget(self.card_chi)
+        mid_panel.addWidget(self.card_mean_err)
+        mid_panel.addWidget(self.card_std_err)
+        mid_panel.addStretch()
+
         main_layout.addLayout(mid_panel, 1)
 
-        self.figure, self.ax = plt.subplots()
-        self.figure.patch.set_facecolor('#000000')
-        self.ax.set_facecolor('#0a0a0a')
+        right_panel = QVBoxLayout()
+        self.figure, self.ax = plt.subplots(figsize=(5, 5))
+        self.figure.patch.set_facecolor('#0b0e14')
+        self.ax.set_facecolor('#151921')
         self.canvas = FigureCanvas(self.figure)
-        main_layout.addWidget(self.canvas, 2)
+        right_panel.addWidget(self.canvas)
+        
+        main_layout.addLayout(right_panel, 2)
 
     def apply_preset(self):
         strat = self.strategies[self.strat_combo.currentText()]
@@ -108,71 +224,52 @@ class LabWorkApp(QMainWindow):
             p_th = [float(self.table.item(i, 1).text()) for i in range(self.table.rowCount())]
             N = self.sample_count.value()
 
-            samples = self.inverse_transform_sampling(x_th, p_th, N)
+            p_sum = sum(p_th)
+            p_th = [p/p_sum for p in p_th]
+
+            samples = []
+            cdf = np.cumsum(p_th)
+            for _ in range(N):
+                u = random.random()
+
+                for i, c in enumerate(cdf):
+                    if u <= c:
+                        samples.append(x_th[i])
+                        break
             
-            self.calculate_discrete_stats(x_th, p_th, samples, N)
+            m_th = sum(x * p for x, p in zip(x_th, p_th))
+            d_th = sum((x**2) * p for x, p in zip(x_th, p_th)) - m_th**2
+            s_th = np.sqrt(d_th)
+
+            m_emp = np.mean(samples)
+            s_emp = np.std(samples)
+
+            err_m = abs(m_th - m_emp) / (abs(m_th) if m_th != 0 else 1)
+            err_s = abs(s_th - s_emp) / (s_th if s_th != 0 else 1)
+
+            unique, counts = np.unique(samples, return_counts=True)
+            freq_map = dict(zip(unique, counts))
+            chi_val = 0
+            for i in range(len(x_th)):
+                e_i = N * p_th[i]
+                o_i = freq_map.get(x_th[i], 0)
+                chi_val += ((o_i - e_i)**2) / e_i
+            
+            df = len(x_th) - 1
+            chi_crit = chi2.ppf(0.95, df)
+            chi_status = "Пройден" if chi_val < chi_crit else "Отклонен"
+
+            self.card_chi.update_val(chi_val, is_error=False, custom_status=f"{chi_status} (кр: {chi_crit:.2f})")
+            self.card_mean_err.update_val(err_m)
+            self.card_std_err.update_val(err_s)
             
             self.plot_discrete(x_th, samples)
         except Exception as e:
-            self.stats_output.setText(f"Ошибка: {e}")
-
-    def inverse_transform_sampling(self, x_list, p_list, n):
-        p_list = [p / sum(p_list) for p in p_list]
-        
-        cdf = np.cumsum(p_list)
-        samples = []
-        for _ in range(n):
-            u = random.random()
-            for i, c in enumerate(cdf):
-                if u <= c:
-                    samples.append(x_list[i])
-                    break
-        
-        return samples
-
-    def calculate_discrete_stats(self, x_th, p_th, samples, N):
-        m_th = sum(x * p for x, p in zip(x_th, p_th))
-        d_th = sum((x**2) * p for x, p in zip(x_th, p_th)) - m_th**2
-
-        unique, counts = np.unique(samples, return_counts=True)
-        freq_map = dict(zip(unique, counts))
-        p_emp = [freq_map.get(x, 0) / N for x in x_th]
-        
-        m_emp = np.mean(samples)
-        d_emp = np.var(samples)
-
-        err_m = abs(m_th - m_emp) / (m_th if m_th != 0 else 1)
-        err_d = abs(d_th - d_emp) / (d_th if d_th != 0 else 1)
-
-        chi_val = 0
-        for i in range(len(x_th)):
-            e_i = N * p_th[i]
-            o_i = freq_map.get(x_th[i], 0)
-            chi_val += ((o_i - e_i)**2) / e_i
-        
-        df = len(x_th) - 1
-        chi_crit = chi2.ppf(0.95, df)
-
-        report = f""">>> ОТЧЕТ ПО ДИСКРЕТНОЙ СВ (N={N})
-                    Мат. ожидание (теор): {m_th:.4f}
-                    Мат. ожидание (эмп) : {m_emp:.4f}
-                    Погрешность M       : {err_m:.2%}
-
-                    Дисперсия (теор)    : {d_th:.4f}
-                    Дисперсия (эмп)     : {d_emp:.4f}
-                    Погрешность D       : {err_d:.2%}
-
-                    Критерий Пирсона χ²:
-                    Значение статистики : {chi_val:.4f}
-                    Критическое (df={df}): {chi_crit:.4f}
-                    Результат: {'ПРОЙДЕН' if chi_val < chi_crit else 'ОТКЛОНЕН'}
-                    Эмпирические вероятности:
-                    {p_emp}
-                    """
-        self.stats_output.setText(report)
+            print(f"Error: {e}")
 
     def run_normal(self):
         N = self.sample_count.value()
+        K = self.bins_count_spin.value()
 
         samples = []
         for _ in range(N // 2):
@@ -181,22 +278,53 @@ class LabWorkApp(QMainWindow):
             z1 = np.sqrt(-2 * np.log(u1)) * np.sin(2 * np.pi * u2)
             samples.extend([z0, z1])
         
-        self.plot_normal(samples, N)
-        self.stats_output.setText(f">>> ОТЧЕТ ПО НОРМАЛЬНОЙ СВ\nN={N}\nСреднее: {np.mean(samples):.4f}\nДисперсия: {np.var(samples):.4f}")
+        samples = np.array(samples)
+        
+        m_emp = np.mean(samples)
+        s_emp = np.std(samples)
+        
+        err_m = abs(0 - m_emp) 
+        err_s = abs(1 - s_emp)
+
+        observed_freq, bin_edges = np.histogram(samples, bins=K)
+        
+        chi_val = 0
+        for i in range(K):
+            p_i = norm.cdf(bin_edges[i+1]) - norm.cdf(bin_edges[i])
+            expected_freq = N * p_i
+            
+            if expected_freq > 0:
+                chi_val += ((observed_freq[i] - expected_freq)**2) / expected_freq
+        
+        df = K - 1
+        chi_crit = chi2.ppf(0.95, df)
+        chi_status = "Пройден" if chi_val < chi_crit else "Отклонен"
+
+        self.card_chi.update_val(chi_val, is_error=False, custom_status=f"{chi_status} (кр: {chi_crit:.2f})")
+        self.card_mean_err.update_val(err_m, threshold=0.05)
+        self.card_std_err.update_val(err_s, threshold=0.05)
+        
+        self.plot_normal(samples, N, K)
 
     def plot_discrete(self, x, samples):
         self.ax.clear()
-        self.ax.hist(samples, bins=len(x)*2, color='#FF8C00', alpha=0.7, density=True, label='Empirical')
-        self.ax.set_title(f"Discrete Distribution (N={len(samples)})", color='#FF8C00')
+        self.ax.hist(samples, bins=np.arange(min(x)-0.5, max(x)+1.5, 1), 
+                     color='#3498db', alpha=0.7, rwidth=0.8, density=True)
+        self.ax.set_title("Гистограмма Дискретной СВ", color='#3498db')
+        self.ax.tick_params(colors='#7f8c8d')
         self.canvas.draw()
 
-    def plot_normal(self, samples, N):
+    def plot_normal(self, samples, N, K):
         self.ax.clear()
-        count, bins, ignored = self.ax.hist(samples, bins=50, density=True, color='#00BFFF', alpha=0.6)
 
-        mu, sigma = 0, 1
-        self.ax.plot(bins, 1/(sigma * np.sqrt(2 * np.pi)) * np.exp( - (bins - mu)**2 / (2 * sigma**2) ), lw=2, color='white')
-        self.ax.set_title(f"Normal Distribution (N={N})", color='#00BFFF')
+        _, bins, _ = self.ax.hist(samples, bins=K, density=True, color='#e74c3c', alpha=0.6, rwidth=0.9)
+        
+        x = np.linspace(min(bins), max(bins), 100)
+        y = norm.pdf(x, 0, 1)
+        self.ax.plot(x, y, '--', color='white', linewidth=2, label='Theory')
+        
+        self.ax.set_title(f"Нормальное распределение (N={N}, K={K})", color='#e74c3c')
+        self.ax.tick_params(colors='#7f8c8d')
         self.canvas.draw()
 
 if __name__ == "__main__":
