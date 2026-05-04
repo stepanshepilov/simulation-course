@@ -11,6 +11,8 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 
 DARK_STYLE = """
 QMainWindow {
@@ -146,13 +148,11 @@ class ModernPlotCanvas(FigureCanvas):
                          f'ρ = {rho:.3f}', fontsize=13, fontweight='bold', pad=20)
 
         # Легенда на отдельной оси
-        from matplotlib.patches import Patch
-        from matplotlib.lines import Line2D
         legend_elements = [
             Patch(facecolor='#00d4ff', alpha=0.7, edgecolor='#0088cc', label='Эмпирическое'),
             Line2D([0], [0], marker='o', color='#ff6b6b', markerfacecolor='#ff6b6b',
                    markeredgecolor='white', linewidth=2.5, markersize=8,
-                   label=f'Теор. P(n)=(1-ρ)ρⁿ')
+                   label='Теор. P(n)=(1-ρ)ρⁿ')
         ]
         self.legend_ax.legend(handles=legend_elements, loc='center', fontsize=10,
                               framealpha=0.9, facecolor='#1a1f3a', edgecolor='#00d4ff')
@@ -174,56 +174,28 @@ class ModernPlotCanvas(FigureCanvas):
 
 
 class MM1Simulator:
-    """Имитационная модель одноканальной СМО с пуассоновским потоком и экспоненциальным обслуживанием."""
-
     def __init__(self):
         pass
 
-    def simulate(self, lam: float, mu: float, T_end: float, warmup: float = 0.0,
-                 progress_callback=None) -> dict:
-        """
-        Событийное моделирование M/M/1.
-
-        Параметры:
-            lam: интенсивность поступления заявок (λ)
-            mu: интенсивность обслуживания (μ)
-            T_end: общее время моделирования
-            warmup: длительность разогрева (начальный период не учитывается в статистике)
-            progress_callback: функция для обновления прогресса (0..100)
-
-        Возвращает словарь с результатами:
-            'states': массив количества попаданий в каждое состояние (0,1,2,...)
-            'wait_times': список времён ожидания всех обслуженных заявок
-            'total_time': общее время сбора статистики (T_end - warmup)
-            'server_busy_time': время, когда сервер был занят
-            'num_served': число обслуженных заявок за период статистики
-        """
-        # Очередь (FIFO)
+    def simulate(self, lam: float, mu: float, T_end: float, warmup: float = 0.0, progress_callback=None) -> dict:
         queue = deque()
         server_busy = False
-        # Следующие события: (время, тип) тип: 'arrival' или 'departure'
         events = []
 
-        # Планируем первое поступление
         t_arrival = np.random.exponential(1.0 / lam)
         events.append((t_arrival, 'arrival'))
 
-        # Статистика
-        state_changes = []  # (time, delta_queue) для интеграла
-        wait_times = []     # времена ожидания обслуженных заявок
+        state_changes = []
+        wait_times = []
         last_event_time = 0.0
         current_queue_length = 0
         server_busy_time_total = 0.0
-        last_state_change_time = 0.0
-        total_time = T_end - warmup
         num_served = 0
-        arrival_times = {}  # id заявки -> время прихода
+        arrival_times = {}
 
-        # Прогресс
         next_progress_update = 0.0
         progress_step = max(1, int(T_end / 100))
 
-        # Основной цикл событий
         while events and last_event_time < T_end:
             events.sort(key=lambda x: x[0])
             t, etype = events.pop(0)
@@ -231,64 +203,53 @@ class MM1Simulator:
             if t >= T_end:
                 break
 
-            # Учёт времени, проведённого в предыдущем состоянии
             delta = t - last_event_time
             if last_event_time >= warmup:
-                # Интеграл длины очереди и занятости сервера
                 state_changes.append((current_queue_length, delta))
                 if server_busy:
                     server_busy_time_total += delta
 
             if etype == 'arrival':
-                # Прибытие заявки
                 current_queue_length += 1
-                arr_id = id(object())  # уникальный идентификатор (просто для словаря)
+                arr_id = id(object())
                 arrival_times[arr_id] = t
 
-                # Если сервер свободен, начинаем обслуживание
                 if not server_busy:
                     server_busy = True
                     service_time = np.random.exponential(1.0 / mu)
                     events.append((t + service_time, 'departure'))
                 else:
-                    # Ставим в очередь (уже учтено через увеличение длины)
                     queue.append(arr_id)
 
-                # Планируем следующее поступление
                 next_arrival = t + np.random.exponential(1.0 / lam)
                 if next_arrival < T_end:
                     events.append((next_arrival, 'arrival'))
 
             elif etype == 'departure':
-                # Завершение обслуживания
                 current_queue_length -= 1
                 if current_queue_length < 0:
-                    current_queue_length = 0  # страховка
+                    current_queue_length = 0
 
-                # Извлекаем из очереди следующую заявку или освобождаем сервер
                 if queue:
                     next_id = queue.popleft()
                     wait_time = t - arrival_times[next_id]
-                    if t >= warmup:   # учитываем только после разогрева
+
+                    if t >= warmup:
                         wait_times.append(wait_time)
+                    
                     num_served += 1
                     service_time = np.random.exponential(1.0 / mu)
                     events.append((t + service_time, 'departure'))
                 else:
                     server_busy = False
-
-                # Удаляем запись о прибытии (опционально)
-                # arrival_times.pop(arr_id, None) - в departure нужно знать id, передадим
-
+            
             last_event_time = t
 
-            # Обновление прогресса
             if progress_callback and t >= next_progress_update:
                 progress = min(100, int(t / T_end * 100))
                 progress_callback(progress)
                 next_progress_update += progress_step
 
-        # Завершаем сбор статистики: период от last_event_time до T_end, если нужно
         if last_event_time < T_end:
             delta = T_end - last_event_time
             if last_event_time >= warmup:
@@ -296,19 +257,17 @@ class MM1Simulator:
                 if server_busy:
                     server_busy_time_total += delta
 
-        # Формируем распределение состояний (гистограмму по времени)
         max_state = max([s for s, _ in state_changes]) if state_changes else 0
         state_counts = np.zeros(max_state + 1)
         for s, duration in state_changes:
             state_counts[s] += duration
 
-        # Нормировка не требуется, вернём сырые времена
         return {
             'states': state_counts,
             'wait_times': wait_times,
             'total_time': T_end - warmup,
             'server_busy_time': server_busy_time_total,
-            'num_served': len(wait_times)  # обслуженные после разогрева
+            'num_served': len(wait_times)
         }
 
 

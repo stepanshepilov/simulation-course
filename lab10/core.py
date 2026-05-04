@@ -1,11 +1,3 @@
-"""
-Имитационное моделирование СМО M/M/c/K с нетерпеливыми заявками (ООП).
-Усложнения:
-  1. Ограниченная очередь (K мест, заявки получают отказ при переполнении).
-  2. Нетерпеливость: заявка покидает очередь, если время ожидания превышает
-     случайную величину, распределённую экспоненциально с параметром nu.
-"""
-
 import sys
 import numpy as np
 from collections import deque
@@ -20,9 +12,6 @@ matplotlib.use('Qt5Agg')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-# ----------------------------------------------------------------------
-# Стилевое оформление (то же, что в примерах)
-# ----------------------------------------------------------------------
 DARK_STYLE = """
 QMainWindow {
     background-color: #0a0e27;
@@ -88,18 +77,14 @@ QProgressBar::chunk {
 }
 """
 
-# ----------------------------------------------------------------------
-# Классы предметной области (ООП)
-# ----------------------------------------------------------------------
 class Request:
-    """Заявка."""
     _id_counter = 0
 
     def __init__(self, arrival_time: float, patience: float = float('inf')):
         self.id = Request._id_counter
         Request._id_counter += 1
         self.arrival_time = arrival_time
-        self.patience = patience           # максимальное допустимое время ожидания
+        self.patience = patience
         self.leave_time = arrival_time + patience if patience < float('inf') else float('inf')
         self.start_service_time = None
         self.departure_time = None
@@ -111,7 +96,6 @@ class Request:
 
 
 class Server:
-    """Обслуживающий прибор."""
     def __init__(self, server_id: int):
         self.id = server_id
         self.busy = False
@@ -138,7 +122,6 @@ class Server:
 
 
 class Event:
-    """Событие в календаре."""
     ARRIVAL = 'ARRIVAL'
     DEPARTURE = 'DEPARTURE'
     IMPATIENCE = 'IMPATIENCE'
@@ -154,12 +137,11 @@ class Event:
 
 
 class SimulationResults:
-    """Контейнер для результатов прогона."""
     def __init__(self):
-        self.state_counts = None         # гистограмма числа заявок в системе по времени
-        self.wait_times = []             # времена ожидания (только обслуженных)
-        self.blocked_count = 0           # число заявок, получивших отказ (очередь полна)
-        self.impatient_count = 0         # число заявок, ушедших из-за нетерпеливости
+        self.state_counts = None
+        self.wait_times = []
+        self.blocked_count = 0
+        self.impatient_count = 0
         self.served_count = 0
         self.total_time = 0.0
         self.server_utilization = 0.0
@@ -167,57 +149,34 @@ class SimulationResults:
 
 
 class MMcKImpatientSimulator:
-    """
-    Имитационная модель M/M/c/K + нетерпеливые заявки.
-    """
-
     def __init__(self, lam: float, mu: float, c: int, K: int, nu: float):
-        """
-        Параметры:
-            lam   - интенсивность входящего потока
-            mu    - интенсивность обслуживания одного прибора
-            c     - число обслуживающих приборов
-            K     - размер буфера (максимальная длина очереди)
-            nu    - интенсивность ухода из очереди (нетерпеливость)
-        """
         self.lam = lam
         self.mu = mu
         self.c = c
         self.K = K
-        self.nu = nu  # если 0, заявки не уходят (без нетерпеливости)
+        self.nu = nu
 
-    def simulate(self, T_end: float, warmup: float = 0.0,
-                 progress_callback=None) -> SimulationResults:
-        """
-        Событийное моделирование.
-
-        Возвращает объект SimulationResults.
-        """
-        # Очередь заявок, ожидающих обслуживания
-        queue = deque()                # элементы: Request
+    def simulate(self, T_end: float, warmup: float = 0.0, progress_callback=None) -> SimulationResults:
+        queue = deque()
         servers = [Server(i) for i in range(self.c)]
-        events = []                    # список будущих событий
+        events = []
 
-        # Статистика
-        state_changes = []             # (число_в_системе, длительность)
+        state_changes = []
         wait_times_collected = []
         blocked = 0
         impatient = 0
         served = 0
         server_busy_time_total = 0.0
         last_event_time = 0.0
-        last_state = 0                 # текущее число заявок в системе
+        last_state = 0
 
-        # Планируем первое поступление
         next_arrival_time = np.random.exponential(1.0 / self.lam)
         events.append(Event(next_arrival_time, Event.ARRIVAL))
 
-        # Прогресс
         next_progress_update = 0.0
         progress_step = max(1, int(T_end / 100))
 
         while events and last_event_time < T_end:
-            # Извлекаем ближайшее событие
             events.sort(key=lambda e: e.time)
             current_event = events.pop(0)
             t = current_event.time
@@ -225,18 +184,16 @@ class MMcKImpatientSimulator:
             if t >= T_end:
                 break
 
-            # Учёт времени, проведённого в предыдущем состоянии
             delta = t - last_event_time
             if last_event_time >= warmup:
                 state_changes.append((last_state, delta))
                 busy_count = sum(1 for s in servers if s.busy)
                 server_busy_time_total += busy_count * delta
 
-            # Обработка события
             if current_event.type == Event.ARRIVAL:
                 self._handle_arrival(current_event, events, queue, servers, t,
                                      warmup, blocked, impatient, wait_times_collected)
-                # Следующее поступление
+
                 next_arr = t + np.random.exponential(1.0 / self.lam)
                 if next_arr < T_end:
                     events.append(Event(next_arr, Event.ARRIVAL))
@@ -249,17 +206,14 @@ class MMcKImpatientSimulator:
                 self._handle_impatience(current_event, queue, servers, t,
                                         warmup, impatient)
 
-            # Обновляем текущее состояние
             last_state = self._current_state(queue, servers)
             last_event_time = t
 
-            # Прогресс бар
             if progress_callback and t >= next_progress_update:
                 progress = min(100, int(t / T_end * 100))
                 progress_callback(progress)
                 next_progress_update += progress_step
 
-        # Завершаем учёт времени до T_end
         if last_event_time < T_end:
             delta = T_end - last_event_time
             if last_event_time >= warmup:
@@ -267,7 +221,6 @@ class MMcKImpatientSimulator:
                 busy_count = sum(1 for s in servers if s.busy)
                 server_busy_time_total += busy_count * delta
 
-        # Формируем результаты
         res = SimulationResults()
         total_stat_time = T_end - warmup
         res.total_time = total_stat_time
@@ -293,12 +246,10 @@ class MMcKImpatientSimulator:
         return res
 
     def _current_state(self, queue, servers):
-        """Общее число заявок в системе (очередь + приборы)."""
         busy = sum(1 for s in servers if s.busy)
         return len(queue) + busy
 
     def _find_free_server(self, servers):
-        """Ищет свободный прибор, возвращает его или None."""
         for server in servers:
             if not server.busy:
                 return server
@@ -306,24 +257,19 @@ class MMcKImpatientSimulator:
 
     def _handle_arrival(self, event, events, queue, servers, t, warmup,
                         blocked, impatient, wait_times):
-        req = Request(arrival_time=t,
-                      patience=float('inf') if self.nu == 0 else np.random.exponential(1.0 / self.nu))
-        # Проверяем, есть ли свободный прибор
+        req = Request(arrival_time=t, patience=float('inf') if self.nu == 0 else np.random.exponential(1.0 / self.nu))
+
         free_server = self._find_free_server(servers)
         if free_server:
             service_time = np.random.exponential(1.0 / self.mu)
             free_server.start_service(req, service_time, t)
-            # Планируем уход
             events.append(Event(t + service_time, Event.DEPARTURE, request=req, server=free_server))
         else:
-            # Очередь
             if len(queue) < self.K:
                 queue.append(req)
-                # Планируем событие нетерпеливого ухода, если nu > 0
                 if self.nu > 0 and req.leave_time < float('inf'):
                     events.append(Event(req.leave_time, Event.IMPATIENCE, request=req))
             else:
-                # Отказ
                 if t >= warmup:
                     blocked += 1
 
@@ -335,10 +281,8 @@ class MMcKImpatientSimulator:
             served_counter += 1
             wait_times.append(t - req.arrival_time)
 
-        # Если есть очередь, начинаем обслуживание следующей заявки
         if queue:
             next_req = queue.popleft()
-            # Удаляем событие нетерпеливого ухода для этой заявки (если есть)
             events = [e for e in events if not (e.type == Event.IMPATIENCE and e.request == next_req)]
             service_time = np.random.exponential(1.0 / self.mu)
             server.start_service(next_req, service_time, t)
@@ -346,7 +290,7 @@ class MMcKImpatientSimulator:
 
     def _handle_impatience(self, event, queue, servers, t, warmup, impatient_counter):
         req = event.request
-        # Проверяем, что заявка всё ещё в очереди (могла уже начать обслуживание)
+
         if req in queue:
             queue.remove(req)
             if t >= warmup:
