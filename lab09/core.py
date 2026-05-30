@@ -1,6 +1,5 @@
 import sys
 import numpy as np
-from collections import deque
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSlider, QDoubleSpinBox,
@@ -16,105 +15,105 @@ from matplotlib.lines import Line2D
 
 DARK_STYLE = """
 QMainWindow {
-    background-color: #0a0e27;
+    background-color: #0a0e17;
 }
 
 QGroupBox {
     font-size: 13px;
     font-weight: bold;
     color: #00d4ff;
-    border: 2px solid #1a2a4f;
-    border-radius: 10px;
-    margin-top: 10px;
-    padding-top: 10px;
-    background-color: rgba(20, 30, 55, 0.5);
+    border: 1px solid #1a2a4f;
+    border-radius: 8px;
+    margin-top: 12px;
+    padding-top: 15px;
+    background-color: #0f172a;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
     left: 10px;
-    padding: 0 10px 0 10px;
+    padding: 0 8px;
 }
 
 QLabel {
-    color: #c0d4f0;
+    color: #94a3b8;
     font-size: 12px;
 }
 
 QPushButton {
     background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1,
-                                stop: 0 #00d4ff, stop: 1 #0088cc);
+                                stop: 0 #0ea5e9, stop: 1 #0284c7);
     color: white;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 12px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: bold;
 }
 
 QPushButton:hover {
     background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1,
-                                stop: 0 #00eaff, stop: 1 #0099dd);
+                                stop: 0 #38bdf8, stop: 1 #0ea5e9);
 }
 
 QPushButton:pressed {
-    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1,
-                                stop: 0 #0088cc, stop: 1 #0066aa);
+    background: #0369a1;
 }
 
-QSpinBox, QDoubleSpinBox, QSlider {
-    background-color: #1a1f3a;
-    border: 1px solid #2a3a5a;
-    border-radius: 5px;
-    padding: 5px;
-    color: #00d4ff;
+QDoubleSpinBox {
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 4px;
+    color: #38bdf8;
     font-size: 12px;
 }
 
-QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 2px solid #00d4ff;
+QDoubleSpinBox:focus {
+    border: 1px solid #0ea5e9;
 }
 
 QProgressBar {
-    border: 1px solid #2a3a5a;
-    border-radius: 5px;
+    border: 1px solid #334155;
+    border-radius: 4px;
     text-align: center;
     color: white;
+    background-color: #0f172a;
+    font-weight: bold;
 }
 
 QProgressBar::chunk {
-    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
-                                stop: 0 #00d4ff, stop: 1 #0088cc);
-    border-radius: 4px;
+    background-color: #0ea5e9;
+    border-radius: 3px;
 }
 """
 
 class ModernPlotCanvas(FigureCanvas):
-    """Холст для построения распределения числа заявок в M/M/1."""
+    """Холст для построения распределения состояний в системе M/M/1/0."""
     def __init__(self, parent=None, width=12, height=7, dpi=100):
-        self.fig = Figure(figsize=(width, height), dpi=dpi, facecolor='#0a0e27')
+        self.fig = Figure(figsize=(width, height), dpi=dpi, facecolor='#0a0e17')
         super().__init__(self.fig)
         self.setParent(parent)
 
-        self.ax = self.fig.add_subplot(111, facecolor='#0f1433')
+        self.ax = self.fig.add_subplot(111, facecolor='#0f172a')
         self.fig.subplots_adjust(right=0.75, left=0.1)
         self.legend_ax = self.fig.add_axes([0.78, 0.3, 0.18, 0.4])
         self.legend_ax.axis('off')
         self.setup_styles()
 
     def setup_styles(self):
-        """Единообразное оформление осей."""
+        """Оформление координатных осей."""
         for spine in self.ax.spines.values():
-            spine.set_color('#2a3a5a')
-        self.ax.tick_params(colors='#c0d4f0', labelsize=10)
+            spine.set_color('#1e293b')
+        self.ax.tick_params(colors='#94a3b8', labelsize=10)
         self.ax.xaxis.label.set_color('#00d4ff')
         self.ax.yaxis.label.set_color('#00d4ff')
         self.ax.title.set_color('#ffffff')
 
     def plot_results(self, state_counts: np.ndarray, rho: float):
         """
-        Построение гистограммы распределения числа заявок в системе
-        и теоретического геометрического распределения.
+        Построение гистограммы распределения состояний системы
+        и теоретического распределения (формула Эрланга для c=1).
         """
         self.ax.clear()
         self.legend_ax.clear()
@@ -122,63 +121,69 @@ class ModernPlotCanvas(FigureCanvas):
         self.setup_styles()
 
         # Нормировка эмпирических частот
+        empirical_probs = np.zeros(2)
         total = state_counts.sum()
-        if total > 0: 
-            empirical_probs = state_counts / total
-        else:
-            empirical_probs = np.zeros_like(state_counts, dtype=float)
+        if total > 0:
+            for i in range(min(2, len(state_counts))):
+                empirical_probs[i] = state_counts[i] / total
 
-        max_state = len(state_counts) - 1
-        states = np.arange(0, max_state + 1)
+        states = np.array([0, 1])
 
-        # Гистограмма
-        self.ax.bar(states, empirical_probs, color='#00d4ff', alpha=0.7,
-                    edgecolor='#0088cc', linewidth=1.5, label='Эмпирическое')
+        # Отрисовка столбцов эмпирических вероятностей
+        self.ax.bar(states, empirical_probs, color='#0ea5e9', alpha=0.7,
+                    edgecolor='#38bdf8', linewidth=1.5, width=0.4, label='Эмпирическое')
 
-        # Теоретическая вероятность P(n) = (1-rho)*rho^n
-        theoretical_probs = (1 - rho) * (rho ** states) if rho < 1 else np.zeros_like(states)
-        self.ax.plot(states, theoretical_probs, 'o-', color='#ff6b6b',
-                    markersize=8, linewidth=2.5, markerfacecolor='#ff6b6b',
+        # Теоретические вероятности по формуле Эрланга для M/M/1/0
+        p0_theor = 1 / (1 + rho)
+        p1_theor = rho / (1 + rho)
+        theoretical_probs = np.array([p0_theor, p1_theor])
+
+        # Отрисовка теоретического графика
+        self.ax.plot(states, theoretical_probs, 'o-', color='#f43f5e',
+                    markersize=10, linewidth=2.5, markerfacecolor='#f43f5e',
                     markeredgecolor='white', markeredgewidth=1.5, label='Теоретическое')
 
-        self.ax.grid(True, alpha=0.2, linestyle='--', color='#2a3a5a')
-        self.ax.set_xlabel('Число заявок в системе', fontsize=12, fontweight='bold')
-        self.ax.set_ylabel('Вероятность', fontsize=12, fontweight='bold')
-        self.ax.set_title(f'Распределение числа заявок в M/M/1\n'
-                         f'ρ = {rho:.3f}', fontsize=13, fontweight='bold', pad=20)
+        self.ax.grid(True, alpha=0.15, linestyle='--', color='#334155')
+        self.ax.set_xticks([0, 1])
+        self.ax.set_xticklabels(['0 (Свободен)', '1 (Занят)'], fontsize=10)
+        self.ax.set_xlim(-0.5, 1.5)
+        self.ax.set_ylim(0, 1.1)
+        
+        self.ax.set_xlabel('Состояние системы (число заявок)', fontsize=12, fontweight='bold')
+        self.ax.set_ylabel('Вероятность состояния', fontsize=12, fontweight='bold')
+        self.ax.set_title(f'Распределение состояний в M/M/1/0 (без очереди)\n'
+                         f'Загрузка ρ = {rho:.3f}', fontsize=13, fontweight='bold', pad=20)
 
-        # Легенда на отдельной оси
+        # Легенда
         legend_elements = [
-            Patch(facecolor='#00d4ff', alpha=0.7, edgecolor='#0088cc', label='Эмпирическое'),
-            Line2D([0], [0], marker='o', color='#ff6b6b', markerfacecolor='#ff6b6b',
+            Patch(facecolor='#0ea5e9', alpha=0.7, edgecolor='#38bdf8', label='Эмпирическое'),
+            Line2D([0], [0], marker='o', color='#f43f5e', markerfacecolor='#f43f5e',
                    markeredgecolor='white', linewidth=2.5, markersize=8,
-                   label='Теор. P(n)=(1-ρ)ρⁿ')
+                   label='Теор. P(n) [ф-ла Эрланга]')
         ]
         self.legend_ax.legend(handles=legend_elements, loc='center', fontsize=10,
-                              framealpha=0.9, facecolor='#1a1f3a', edgecolor='#00d4ff')
+                              framealpha=0.9, facecolor='#0f172a', edgecolor='#1e293b')
 
-        # Аннотация
-        if rho < 1:
-            mean_theor = rho / (1 - rho)
-        else:
-            mean_theor = float('inf')
-        mean_emp = np.average(states, weights=empirical_probs) if total > 0 else 0
-        textstr = f'Среднее (эмп.): {mean_emp:.3f}\nСреднее (теор.): {mean_theor:.3f}'
-        props = dict(boxstyle='round', facecolor='#1a1f3a', alpha=0.8,
-                     edgecolor='#00d4ff', linewidth=1.5)
+        # Информационная панель на графике
+        textstr = (
+            f"P0 (теор.): {p0_theor:.3f}\nP0 (эмп.): {empirical_probs[0]:.3f}\n\n"
+            f"P1 (теор.): {p1_theor:.3f}\nP1 (эмп.): {empirical_probs[1]:.3f}"
+        )
+        props = dict(boxstyle='round,pad=0.5', facecolor='#0f172a', alpha=0.8,
+                     edgecolor='#1e293b', linewidth=1.5)
         self.ax.text(0.95, 0.95, textstr, transform=self.ax.transAxes, fontsize=10,
                     verticalalignment='top', horizontalalignment='right',
-                    bbox=props, color='#c0d4f0')
+                    bbox=props, color='#94a3b8')
 
         self.draw()
 
 
-class MM1Simulator:
+class MM10Simulator:
+    """Имитационный симулятор СМО типа M/M/1/0 (без очереди)."""
     def __init__(self):
         pass
 
     def simulate(self, lam: float, mu: float, T_end: float, warmup: float = 0.0, progress_callback=None) -> dict:
-        queue = deque()
         server_busy = False
         events = []
 
@@ -186,12 +191,14 @@ class MM1Simulator:
         events.append((t_arrival, 'arrival'))
 
         state_changes = []
-        wait_times = []
+        system_times = []
         last_event_time = 0.0
-        current_queue_length = 0
-        server_busy_time_total = 0.0
+        
+        num_arrivals = 0
         num_served = 0
-        arrival_times = {}
+        num_rejected = 0
+        
+        current_customer_arrival = 0.0
 
         next_progress_update = 0.0
         progress_step = max(1, int(T_end / 100))
@@ -204,44 +211,34 @@ class MM1Simulator:
                 break
 
             delta = t - last_event_time
+            current_state = 1 if server_busy else 0
+            
             if last_event_time >= warmup:
-                state_changes.append((current_queue_length, delta))
-                if server_busy:
-                    server_busy_time_total += delta
+                state_changes.append((current_state, delta))
 
             if etype == 'arrival':
-                current_queue_length += 1
-                arr_id = id(object())
-                arrival_times[arr_id] = t
-
+                if t >= warmup:
+                    num_arrivals += 1
+                
                 if not server_busy:
                     server_busy = True
+                    current_customer_arrival = t
                     service_time = np.random.exponential(1.0 / mu)
                     events.append((t + service_time, 'departure'))
+                    if t >= warmup:
+                        num_served += 1
                 else:
-                    queue.append(arr_id)
+                    if t >= warmup:
+                        num_rejected += 1
 
                 next_arrival = t + np.random.exponential(1.0 / lam)
                 if next_arrival < T_end:
                     events.append((next_arrival, 'arrival'))
 
             elif etype == 'departure':
-                current_queue_length -= 1
-                if current_queue_length < 0:
-                    current_queue_length = 0
-
-                if queue:
-                    next_id = queue.popleft()
-                    wait_time = t - arrival_times[next_id]
-
-                    if t >= warmup:
-                        wait_times.append(wait_time)
-                    
-                    num_served += 1
-                    service_time = np.random.exponential(1.0 / mu)
-                    events.append((t + service_time, 'departure'))
-                else:
-                    server_busy = False
+                server_busy = False
+                if t >= warmup:
+                    system_times.append(t - current_customer_arrival)
             
             last_event_time = t
 
@@ -252,29 +249,29 @@ class MM1Simulator:
 
         if last_event_time < T_end:
             delta = T_end - last_event_time
+            current_state = 1 if server_busy else 0
             if last_event_time >= warmup:
-                state_changes.append((current_queue_length, delta))
-                if server_busy:
-                    server_busy_time_total += delta
+                state_changes.append((current_state, delta))
 
-        max_state = max([s for s, _ in state_changes]) if state_changes else 0
-        state_counts = np.zeros(max_state + 1)
+        state_counts = np.zeros(2)
         for s, duration in state_changes:
-            state_counts[s] += duration
+            if s < 2:
+                state_counts[s] += duration
 
         return {
             'states': state_counts,
-            'wait_times': wait_times,
+            'system_times': system_times,
             'total_time': T_end - warmup,
-            'server_busy_time': server_busy_time_total,
-            'num_served': len(wait_times)
+            'num_arrivals': num_arrivals,
+            'num_served': num_served,
+            'num_rejected': num_rejected
         }
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Имитационное моделирование M/M/1 | СМО")
+        self.setWindowTitle("Имитационное моделирование M/M/1/0 | СМО без очереди")
         self.setGeometry(100, 100, 1400, 850)
         self.setStyleSheet(DARK_STYLE)
 
@@ -290,7 +287,7 @@ class MainWindow(QMainWindow):
         right_panel = self.create_visualization_panel()
         main_layout.addWidget(right_panel, stretch=2)
 
-        self.simulator = MM1Simulator()
+        self.simulator = MM10Simulator()
         self.current_results = None
 
         self.update_rho_display()
@@ -301,36 +298,36 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setSpacing(15)
 
-        header = QLabel("⚙️ КОНФИГУРАЦИЯ M/M/1")
+        header = QLabel("⚙️ КОНФИГУРАЦИЯ M/M/1/0")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setStyleSheet("font-size: 18px; font-weight: bold; color: #00d4ff; padding: 10px;")
+        header.setStyleSheet("font-size: 16px; font-weight: bold; color: #00d4ff; padding: 5px;")
         layout.addWidget(header)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background-color: #2a3a5a; max-height: 2px;")
+        sep.setStyleSheet("background-color: #1e293b; max-height: 1px;")
         layout.addWidget(sep)
 
         # Параметры λ и μ
-        flow_group = QGroupBox("Интенсивности")
+        flow_group = QGroupBox("Интенсивности потоков")
         flow_layout = QVBoxLayout()
 
         # λ
         lambda_layout = QVBoxLayout()
-        lambda_layout.addWidget(QLabel("λ (заявок/сек):"))
+        lambda_layout.addWidget(QLabel("Интенсивность поступления λ (заявок/сек):"))
         self.lambda_slider = QSlider(Qt.Orientation.Horizontal)
-        self.lambda_slider.setRange(1, 200)  # 0.1 .. 2.0 (масштаб x100)
-        self.lambda_slider.setValue(80)      # 0.8
+        self.lambda_slider.setRange(10, 1000)  # 0.1 .. 10.0 (масштаб x100)
+        self.lambda_slider.setValue(150)      # 1.5
         self.lambda_slider.valueChanged.connect(self.on_lambda_changed)
         lambda_layout.addWidget(self.lambda_slider)
 
         lambda_value_layout = QHBoxLayout()
-        self.lambda_value_label = QLabel("0.800")
+        self.lambda_value_label = QLabel("1.500")
         self.lambda_value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.lambda_value_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #00d4ff;")
+        self.lambda_value_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #00d4ff;")
         self.lambda_spinbox = QDoubleSpinBox()
-        self.lambda_spinbox.setRange(0.1, 2.0)
-        self.lambda_spinbox.setValue(0.8)
+        self.lambda_spinbox.setRange(0.1, 10.0)
+        self.lambda_spinbox.setValue(1.5)
         self.lambda_spinbox.setSingleStep(0.1)
         self.lambda_spinbox.valueChanged.connect(self.on_lambda_spinbox_changed)
         lambda_value_layout.addWidget(QLabel("Значение:"))
@@ -341,20 +338,20 @@ class MainWindow(QMainWindow):
 
         # μ
         mu_layout = QVBoxLayout()
-        mu_layout.addWidget(QLabel("μ (обслуживаний/сек):"))
+        mu_layout.addWidget(QLabel("Интенсивность обслуживания μ (требований/сек):"))
         self.mu_slider = QSlider(Qt.Orientation.Horizontal)
-        self.mu_slider.setRange(10, 300)  # 0.1 .. 3.0
-        self.mu_slider.setValue(100)      # 1.0
+        self.mu_slider.setRange(10, 1000)  # 0.1 .. 10.0
+        self.mu_slider.setValue(200)      # 2.0
         self.mu_slider.valueChanged.connect(self.on_mu_changed)
         mu_layout.addWidget(self.mu_slider)
 
         mu_value_layout = QHBoxLayout()
-        self.mu_value_label = QLabel("1.000")
+        self.mu_value_label = QLabel("2.000")
         self.mu_value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.mu_value_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #00d4ff;")
+        self.mu_value_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #00d4ff;")
         self.mu_spinbox = QDoubleSpinBox()
-        self.mu_spinbox.setRange(0.1, 3.0)
-        self.mu_spinbox.setValue(1.0)
+        self.mu_spinbox.setRange(0.1, 10.0)
+        self.mu_spinbox.setValue(2.0)
         self.mu_spinbox.setSingleStep(0.1)
         self.mu_spinbox.valueChanged.connect(self.on_mu_spinbox_changed)
         mu_value_layout.addWidget(QLabel("Значение:"))
@@ -363,33 +360,34 @@ class MainWindow(QMainWindow):
         mu_layout.addLayout(mu_value_layout)
         flow_layout.addLayout(mu_layout)
 
-        # Отображение ρ
+        # Отображение параметров нагрузки
         self.rho_display = QLabel()
         self.rho_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.rho_display.setStyleSheet("""
-            background-color: #1a2a4f;
-            border-radius: 8px;
-            padding: 10px;
-            font-size: 13px;
+            background-color: #0b1329;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 12px;
             color: #00d4ff;
+            border: 1px solid #1e293b;
         """)
         flow_layout.addWidget(self.rho_display)
 
         flow_group.setLayout(flow_layout)
         layout.addWidget(flow_group)
 
-        # Параметры моделирования
+        # Параметры прогона
         sim_group = QGroupBox("Параметры моделирования")
         sim_layout = QVBoxLayout()
 
-        sim_layout.addWidget(QLabel("Время моделирования (сек):"))
+        sim_layout.addWidget(QLabel("Время прогона (сек):"))
         self.T_spinbox = QDoubleSpinBox()
         self.T_spinbox.setRange(100, 100000)
-        self.T_spinbox.setValue(5000)
+        self.T_spinbox.setValue(10000)
         self.T_spinbox.setSingleStep(1000)
         sim_layout.addWidget(self.T_spinbox)
 
-        sim_layout.addWidget(QLabel("Разогрев (сек):"))
+        sim_layout.addWidget(QLabel("Период прогрева (сек):"))
         self.warmup_spinbox = QDoubleSpinBox()
         self.warmup_spinbox.setRange(0, 10000)
         self.warmup_spinbox.setValue(500)
@@ -399,9 +397,10 @@ class MainWindow(QMainWindow):
         sim_group.setLayout(sim_layout)
         layout.addWidget(sim_group)
 
-        # Прогресс
+        # Прогресс-бар
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
+        self.progress_bar.setFixedHeight(18)
         layout.addWidget(self.progress_bar)
 
         # Кнопка запуска
@@ -410,16 +409,18 @@ class MainWindow(QMainWindow):
         self.run_button.setMinimumHeight(45)
         layout.addWidget(self.run_button)
 
-        # Статистика
+        # Характеристики
         stats_group = QGroupBox("Операционные характеристики")
         stats_layout = QVBoxLayout()
-        self.stats_display = QLabel()
+        self.stats_display = QLabel("Нажмите кнопку запуска для проведения расчетов.")
         self.stats_display.setStyleSheet("""
-            background-color: #1a1f3a;
-            border-radius: 8px;
-            padding: 12px;
-            font-family: monospace;
+            background-color: #0b1329;
+            border-radius: 6px;
+            padding: 10px;
+            font-family: Consolas, monospace;
             font-size: 11px;
+            color: #e2e8f0;
+            border: 1px solid #1e293b;
         """)
         self.stats_display.setWordWrap(True)
         stats_layout.addWidget(self.stats_display)
@@ -433,14 +434,14 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
 
-        header = QLabel("📊 РАСПРЕДЕЛЕНИЕ ЧИСЛА ЗАЯВОК В СИСТЕМЕ")
+        header = QLabel("📊 РАСПРЕДЕЛЕНИЕ ЧИСЛА ЗАЯВОК В СИСТЕМЕ (M/M/1/0)")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setStyleSheet("font-size: 18px; font-weight: bold; color: #00d4ff; padding: 10px;")
+        header.setStyleSheet("font-size: 16px; font-weight: bold; color: #00d4ff; padding: 5px;")
         layout.addWidget(header)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background-color: #2a3a5a; max-height: 2px;")
+        sep.setStyleSheet("background-color: #1e293b; max-height: 1px;")
         layout.addWidget(sep)
 
         self.plot_canvas = ModernPlotCanvas(width=10, height=7)
@@ -449,14 +450,15 @@ class MainWindow(QMainWindow):
         info_frame = QFrame()
         info_frame.setStyleSheet("""
             QFrame {
-                background-color: #1a2a4f;
-                border-radius: 8px;
-                padding: 8px;
+                background-color: #0f172a;
+                border-radius: 6px;
+                border: 1px solid #1e293b;
+                padding: 6px;
             }
         """)
         info_layout = QHBoxLayout(info_frame)
-        self.info_text = QLabel("Настройте параметры и запустите моделирование.")
-        self.info_text.setStyleSheet("color: #c0d4f0; font-size: 11px;")
+        self.info_text = QLabel("Система M/M/1/0 всегда стабильна, так как нет бесконечно растущей очереди.")
+        self.info_text.setStyleSheet("color: #94a3b8; font-size: 11px;")
         info_layout.addWidget(self.info_text)
         layout.addWidget(info_frame)
 
@@ -498,19 +500,7 @@ class MainWindow(QMainWindow):
         lam = self.lambda_spinbox.value()
         mu = self.mu_spinbox.value()
         rho = lam / mu if mu > 0 else 0
-        if rho < 1:
-            self.rho_display.setText(f"Загрузка ρ = λ/μ = {rho:.4f}   (стационарный режим)")
-        else:
-            self.rho_display.setText(f"ρ = {rho:.4f}   ⚠ Нестационарный режим (ρ ≥ 1)")
-            self.rho_display.setStyleSheet("""
-                background-color: #1a2a4f; border-radius: 8px; padding: 10px;
-                font-size: 13px; color: #ff6b6b;
-            """)
-            return
-        self.rho_display.setStyleSheet("""
-            background-color: #1a2a4f; border-radius: 8px; padding: 10px;
-            font-size: 13px; color: #00d4ff;
-        """)
+        self.rho_display.setText(f"Приведенная нагрузка ρ = λ/μ = {rho:.4f}\n")
 
     def run_simulation(self):
         self.run_button.setEnabled(False)
@@ -541,55 +531,54 @@ class MainWindow(QMainWindow):
         rho = lam / mu if mu > 0 else 0
         total_time = results['total_time']
         state_counts = results['states']
-        wait_times = results['wait_times']
-
-        # Характеристики
-        L_emp = np.sum(np.arange(len(state_counts)) * state_counts) / total_time
-        server_busy = results['server_busy_time']
-        U_emp = server_busy / total_time if total_time > 0 else 0
-        W_emp = np.mean(wait_times) if wait_times else 0
+        system_times = results['system_times']
+        num_arrivals = results['num_arrivals']
+        num_rejected = results['num_rejected']
         num_served = results['num_served']
 
-        # Теоретические (для стационарного режима)
-        if rho < 1:
-            L_theor = rho / (1 - rho)
-            U_theor = rho
-            W_theor = 1 / (mu * (1 - rho))
-        else:
-            L_theor = float('inf')
-            U_theor = 1.0
-            W_theor = float('inf')
+        # Эмпирические значения
+        U_emp = state_counts[1] / total_time if total_time > 0 else 0
+        L_emp = U_emp  # Число требований в системе 0 или 1, среднее равно вероятности занятости
+        W_emp = np.mean(system_times) if system_times else 0
+        P_loss_emp = num_rejected / num_arrivals if num_arrivals > 0 else 0
 
-        # Построение графика
+        # Теоретические значения (формула Эрланга для c=1 канала)
+        P1_theor = rho / (1 + rho)
+        L_theor = P1_theor
+        U_theor = P1_theor
+        W_theor = 1 / mu if mu > 0 else 0
+        P_loss_theor = P1_theor
+
+        # Отрисовка результатов
         self.plot_canvas.plot_results(state_counts, rho)
 
-        # Текст статистики
+        # Вывод показателей
         stats_text = (
-            f"<b>ЭМПИРИЧЕСКИЕ ХАРАКТЕРИСТИКИ (после разогрева)</b><br>"
-            f"Среднее число заявок в системе L: {L_emp:.4f}<br>"
-            f"Коэффициент загрузки сервера U: {U_emp:.4f}<br>"
-            f"Среднее время ожидания W: {W_emp:.4f} сек<br>"
-            f"Число обслуженных заявок: {num_served}<br>"
+            f"<b>ЭМПИРИКА (после разогрева):</b><br>"
+            f"• Ср. число заявок в системе L: <font color='#00d4ff'>{L_emp:.4f}</font><br>"
+            f"• Загрузка прибора U: <font color='#00d4ff'>{U_emp:.4f}</font><br>"
+            f"• Вероятность отказа P<sub>отк</sub>: <font color='#f43f5e'>{P_loss_emp:.4f}</font><br>"
+            f"• Время в системе W (обслуж.): <font color='#00d4ff'>{W_emp:.4f}</font> с<br>"
+            f"• Поступило заявок за прогон: {num_arrivals}<br>"
+            f"• Обслужено / Отклонено: {num_served} / {num_rejected}<br>"
             f"<br>"
-            f"<b>ТЕОРЕТИЧЕСКИЕ ЗНАЧЕНИЯ (стац. режим)</b><br>"
-            f"L = ρ/(1-ρ) = {L_theor:.4f}<br>"
-            f"U = ρ = {U_theor:.4f}<br>"
-            f"W = 1/(μ(1-ρ)) = {W_theor:.4f}<br>"
+            f"<b>ТЕОРИЯ (M/M/1/0):</b><br>"
+            f"• L = U = ρ/(1+ρ) = <font color='#00d4ff'>{L_theor:.4f}</font><br>"
+            f"• P<sub>отк</sub> = ρ/(1+ρ) = <font color='#f43f5e'>{P_loss_theor:.4f}</font><br>"
+            f"• W = 1/μ = <font color='#00d4ff'>{W_theor:.4f}</font> с<br>"
+            f"<br>"
         )
 
-        if rho < 1:
-            if abs(L_emp - L_theor) < 0.1 * L_theor:
-                stats_text += '<span style="color:#00ff88;">✓ Хорошее совпадение с теорией</span>'
-            else:
-                stats_text += '<span style="color:#ffaa00;">⚠ Заметное расхождение, увеличьте время моделирования</span>'
+        if abs(L_emp - L_theor) < 0.03 and abs(P_loss_emp - P_loss_theor) < 0.03:
+            stats_text += '<span style="color:#10b981; font-weight:bold;">✓ Эмпирические данные соответствуют теории.</span>'
         else:
-            stats_text += '<span style="color:#ff6b6b;">⚠ Режим перегрузки (ρ ≥ 1), очередь растёт неограниченно</span>'
+            stats_text += '<span style="color:#f59e0b; font-weight:bold;">⚠ Есть расхождения. Рекомендуется увеличить время прогона.</span>'
 
         self.stats_display.setText(stats_text)
 
         self.info_text.setText(
-            f"Моделирование завершено. Длина прогона: {total_time:.0f} с. "
-            f"Обслужено: {num_served}. L={L_emp:.3f}, W={W_emp:.3f} с."
+            f"Прогон завершен за {total_time:.0f} с. Прибыло: {num_arrivals}. "
+            f"Обслужено: {num_served}, отклонено: {num_rejected} ({P_loss_emp * 100:.1f}% потерь)."
         )
 
 
